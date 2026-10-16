@@ -6,8 +6,6 @@ import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
-from types import ModuleType
-from typing import Any
 
 from config import MouseSettings
 
@@ -20,6 +18,7 @@ class ClickAction(str, Enum):
     LEFT_CLICK = "left click"
     RIGHT_CLICK = "right click"
     DOUBLE_CLICK = "double click"
+    MIDDLE_CLICK = "middle click"
 
 
 class ClickDebouncer:
@@ -225,22 +224,27 @@ class MouseController:
         self,
         settings: MouseSettings,
         screen_size: tuple[int, int] | None = None,
+        backend=None,
     ) -> None:
         """Initialize the controller.
 
         Args:
             settings: Cursor mapping and smoothing settings.
             screen_size: Optional ``(width, height)`` override.  When omitted,
-                PyAutoGUI is queried for the primary screen size.
+                the configured backend is queried for the virtual desktop size.
+            backend: Optional backend instance (for tests). When omitted,
+                ``mouse_backend.auto_backend`` selects by ``settings.backend``.
         """
+        from mouse_backend import auto_backend
+
         settings.validate()
         self.settings = settings
-        self._screen_size = screen_size or self._query_screen_size()
+        self._backend = backend if backend is not None else auto_backend(settings.backend)
+        self._screen_size = screen_size or self._backend.size()
         if self._screen_size[0] <= 0 or self._screen_size[1] <= 0:
             raise RuntimeError("Screen dimensions must be positive")
         self._smoothed_position: tuple[float, float] | None = None
         self._last_position: ScreenPoint | None = None
-        self._pyautogui: ModuleType | Any | None = None
         self._movement_error_logged = False
         self._one_euro_x = OneEuroFilter(
             settings.one_euro_min_cutoff, settings.one_euro_beta, settings.one_euro_dcutoff
@@ -250,23 +254,10 @@ class MouseController:
         )
         self._dragging = False
 
-    @staticmethod
-    def _query_screen_size() -> tuple[int, int]:
-        """Query PyAutoGUI while producing a useful error if unavailable."""
-        try:
-            import pyautogui
-
-            # PyAutoGUI's historical default PAUSE=0.1 seconds adds latency to
-            # every movement/click command.  The application provides its own
-            # frame/cooldown throttling, so keep the low-level calls immediate.
-            pyautogui.PAUSE = 0
-            size = pyautogui.size()
-            return int(size.width), int(size.height)
-        except Exception as exc:  # PyAutoGUI has platform-specific exceptions.
-            raise RuntimeError(
-                "Unable to query the desktop screen through PyAutoGUI. "
-                "A desktop session is required."
-            ) from exc
+    @property
+    def backend_name(self) -> str:
+        """Return active backend name for the OSD."""
+        return getattr(self._backend, "name", "unknown")
 
     @property
     def screen_size(self) -> tuple[int, int]:
@@ -373,23 +364,10 @@ class MouseController:
         self._last_position = point
         return point
 
-    def _load_pyautogui(self) -> Any:
-        """Import and cache PyAutoGUI lazily."""
-        if self._pyautogui is None:
-            try:
-                import pyautogui
-            except ImportError as exc:
-                raise RuntimeError(
-                    "PyAutoGUI is required for mouse control; install requirements.txt"
-                ) from exc
-            pyautogui.PAUSE = 0
-            self._pyautogui = pyautogui
-        return self._pyautogui
-
     def _emit_movement(self, point: ScreenPoint) -> None:
         """Send a movement command, logging repeated desktop failures once."""
         try:
-            self._load_pyautogui().moveTo(point.x, point.y)
+            self._backend.move_to(point.x, point.y)
             self._movement_error_logged = False
         except Exception as exc:
             if not self._movement_error_logged:
@@ -397,21 +375,31 @@ class MouseController:
                 self._movement_error_logged = True
 
     def perform_click(self, action: ClickAction) -> bool:
-        """Execute a click action through PyAutoGUI."""
+        """Execute a click action through the active backend."""
         try:
-            pyautogui = self._load_pyautogui()
             if action is ClickAction.LEFT_CLICK:
-                pyautogui.click()
+                self._backend.click()
             elif action is ClickAction.RIGHT_CLICK:
-                pyautogui.rightClick()
+                self._backend.right_click()
             elif action is ClickAction.DOUBLE_CLICK:
-                pyautogui.doubleClick()
+                self._backend.double_click()
+            elif action is ClickAction.MIDDLE_CLICK:
+                self._backend.middle_click()
             else:
                 raise ValueError(f"Unsupported click action: {action}")
             LOGGER.debug("Executed %s", action.value)
             return True
         except Exception as exc:
             LOGGER.error("Unable to execute %s: %s", action.value, exc)
+            return False
+
+    def hotkey(self, *keys: str) -> bool:
+        """Press a key combination (second-hand shortcuts)."""
+        try:
+            self._backend.hotkey(*keys)
+            return True
+        except Exception as exc:
+            LOGGER.error("Unable to press %s: %s", keys, exc)
             return False
 
     @property
@@ -424,11 +412,10 @@ class MouseController:
         if dragging == self._dragging:
             return True
         try:
-            pyautogui = self._load_pyautogui()
             if dragging:
-                pyautogui.mouseDown()
+                self._backend.mouse_down()
             else:
-                pyautogui.mouseUp()
+                self._backend.mouse_up()
             self._dragging = dragging
             LOGGER.info("Drag %s", "started" if dragging else "ended")
             return True
@@ -441,9 +428,8 @@ class MouseController:
         if amount <= 0:
             raise ValueError("scroll amount must be positive")
         try:
-            pyautogui = self._load_pyautogui()
             scroll_value = abs(amount) if direction.lower() == "up" else -abs(amount)
-            pyautogui.scroll(scroll_value)
+            self._backend.scroll(scroll_value)
             return True
         except Exception as exc:
             LOGGER.error("Unable to scroll mouse: %s", exc)

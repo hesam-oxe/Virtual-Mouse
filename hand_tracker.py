@@ -278,6 +278,57 @@ class HandTracker:
         """Whether the underlying MediaPipe task has been closed."""
         return self._closed
 
+    def detect_all(
+        self,
+        frame_bgr: np.ndarray,
+        timestamp_ms: int,
+        roi_percentage: float = 1.0,
+    ) -> tuple[HandObservation, ...]:
+        """Detect all hands, sorted by confidence (primary first)."""
+        import numpy as np
+
+        if self._closed or self._landmarker is None:
+            raise RuntimeError("HandTracker is closed")
+        if not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0:
+            raise ValueError("frame_bgr must be a non-empty OpenCV image")
+        if timestamp_ms <= self._last_timestamp_ms:
+            timestamp_ms = self._last_timestamp_ms + 1
+        frame_height, frame_width = frame_bgr.shape[:2]
+        roi_width = max(1, int(round(frame_width * roi_percentage)))
+        roi_height = max(1, int(round(frame_height * roi_percentage)))
+        x_offset = max(0, (frame_width - roi_width) // 2)
+        y_offset = max(0, (frame_height - roi_height) // 2)
+        detection_frame = frame_bgr[y_offset : y_offset + roi_height, x_offset : x_offset + roi_width]
+        try:
+            import cv2
+            import mediapipe as mp
+
+            rgb_frame = cv2.cvtColor(detection_frame, cv2.COLOR_BGR2RGB)
+            rgb_frame = np.ascontiguousarray(rgb_frame)
+            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            result = self._landmarker.detect_for_video(image, timestamp_ms)
+        except Exception as exc:
+            raise RuntimeError(f"MediaPipe hand detection failed: {exc}") from exc
+        finally:
+            self._last_timestamp_ms = timestamp_ms
+        observations: list[HandObservation] = []
+        for hand_idx, hand_lms in enumerate(result.hand_landmarks):
+            landmarks = tuple(
+                _map_landmark_to_full_frame(lm, x_offset, y_offset, roi_width, roi_height, frame_width, frame_height)
+                for lm in hand_lms
+            )
+            handedness = "Unknown"
+            confidence = 0.0
+            if result.handedness and hand_idx < len(result.handedness):
+                cats = result.handedness[hand_idx]
+                if cats:
+                    cat = cats[0]
+                    handedness = cat.category_name or cat.display_name or f"Hand {hand_idx}"
+                    confidence = float(cat.score or 0.0)
+            observations.append(HandObservation(landmarks, handedness, confidence))
+        observations.sort(key=lambda o: o.confidence, reverse=True)
+        return tuple(observations)
+
     def detect(
         self,
         frame_bgr: np.ndarray,
@@ -394,6 +445,7 @@ class ProcessedFrame:
     timestamp_ms: int
     observation: HandObservation | None
     error: str | None = None
+    observations: tuple[HandObservation, ...] = ()
 
 
 class LatestFrameProcessor:
@@ -441,18 +493,20 @@ class LatestFrameProcessor:
                     return
                 frame_number, frame, timestamp_ms = item
                 try:
-                    observation = self.tracker.detect(
+                    observations = self.tracker.detect_all(
                         frame,
                         timestamp_ms,
                         roi_percentage=self.roi_percentage,
                     )
+                    observation = observations[0] if observations else None
                     processed = ProcessedFrame(
-                        frame_number, timestamp_ms, observation
+                        frame_number, timestamp_ms, observation,
+                        None, observations,
                     )
                 except Exception as exc:  # Keep capture alive on worker errors.
                     LOGGER.exception("Asynchronous hand detection failed")
                     processed = ProcessedFrame(
-                        frame_number, timestamp_ms, None, str(exc)
+                        frame_number, timestamp_ms, None, str(exc), ()
                     )
                 with self._latest_lock:
                     self._latest = processed

@@ -139,6 +139,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Show tap telemetry and adjust tap sensitivity without mouse input",
     )
     parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="Personal 10s calibration: pinch, fist, peace then auto-save",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run model, gesture, debounce, and mapping checks without a camera",
@@ -294,20 +299,28 @@ def _draw_status_panel(
     calibration_mode: bool = False,
     processing_mode: str = "",
     show_fps: bool = True,
+    paused: bool = False,
+    second_result: GestureResult | None = None,
+    backend_name: str = "",
+    dragging: bool = False,
 ) -> None:
     """Draw status, FPS, gesture, tap state, and debounce information."""
     height, width = frame.shape[:2]
     scale = 0.48 if width < 900 else 0.58
     line_height = max(20, int(25 * scale / 0.48))
-    panel_width = min(width - 16, 500)
-    panel_height = min(height - 16, 24 + line_height * 6)
+    panel_width = min(width - 16, 560)
+    panel_height = min(height - 16, 24 + line_height * 7)
     _draw_translucent_panel(
         frame, (8, 8), (8 + panel_width, 8 + panel_height)
     )
     text_x = 18
     text_y = 8 + line_height
     status = result.label if result is not None else Gesture.NO_HAND.value
-    color = gesture_color(result.gesture if result is not None else None)
+    if paused:
+        status = "PAUSED (2nd fist)"
+    elif dragging:
+        status += " + DRAG"
+    color = (0, 0, 255) if paused else gesture_color(result.gesture if result is not None else None)
     cv2.putText(
         frame,
         f"Gesture: {status}",
@@ -367,6 +380,19 @@ def _draw_status_panel(
             1,
             cv2.LINE_AA,
         )
+    text_y += line_height
+    second_line = f"2nd: {second_result.gesture.value}" if second_result is not None else "2nd: -"
+    backend_line = f" | {backend_name}" if backend_name else ""
+    cv2.putText(
+        frame,
+        f"{second_line}{backend_line}",
+        (text_x, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (200, 200, 200),
+        1,
+        cv2.LINE_AA,
+    )
     text_y += line_height
     if calibration_mode:
         cv2.putText(
@@ -669,6 +695,75 @@ def run_self_test(config_path: Path, model_override: Path | None = None) -> int:
     return 0
 
 
+def run_calibration(args: argparse.Namespace) -> int:
+    """Personal calibration: sample pinch/fist/peace and save thresholds."""
+    from gesture_recognizer import fingertip_wrist_distances, landmark_distance
+
+    config_path = args.config.expanduser().resolve()
+    config = AppConfig.load(config_path)
+    model_path = prepare_model(config, config_path, args.model)
+    capture = open_camera(config)
+    tracker = HandTracker(
+        model_path,
+        num_hands=1,
+        min_detection_confidence=config.detection.min_hand_detection_confidence,
+        min_presence_confidence=config.detection.min_hand_presence_confidence,
+        min_tracking_confidence=config.detection.min_tracking_confidence,
+    )
+    poses = [
+        ("PINCH thumb+index tightly (3s)", 90),
+        ("FIST all fingers closed (3s)", 90),
+        ("PEACE index+middle apart (3s)", 90),
+    ]
+    samples: dict[str, list[float]] = {"pinch": [], "fist": [], "peace": []}
+    try:
+        ts = 0
+        for label, frames in poses:
+            LOGGER.info("Calibrate: %s", label)
+            for _ in range(frames):
+                ok, frame = capture.read()
+                if not ok or frame is None:
+                    continue
+                if config.camera.flip:
+                    frame = cv2.flip(frame, 1)
+                ts += 1
+                obs = tracker.detect(frame, ts, roi_percentage=config.performance.roi_percentage)
+                if obs is None:
+                    continue
+                if "PINCH" in label:
+                    samples["pinch"].append(landmark_distance(obs.landmarks[4], obs.landmarks[8]))
+                elif "FIST" in label:
+                    d = fingertip_wrist_distances(obs.landmarks)
+                    samples["fist"].append(max(d.values()))
+                else:
+                    samples["peace"].append(landmark_distance(obs.landmarks[8], obs.landmarks[12]))
+                if not args.no_display:
+                    cv2.putText(frame, f"Calibrate: {label}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    cv2.imshow(config.display.window_name, frame)
+                    if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                        return 0
+        if samples["pinch"]:
+            config.gestures.pinch_threshold = round(max(samples["pinch"]) * 1.25 + 0.005, 4)
+        if samples["fist"]:
+            config.gestures.fist_tip_wrist_threshold = round(max(samples["fist"]) * 1.2 + 0.02, 4)
+        if samples["peace"]:
+            config.gestures.peace_min_separation = round(min(samples["peace"]) * 0.8, 4)
+        config.validate()
+        config.save(config_path)
+        LOGGER.info(
+            "Calibration saved: pinch=%.4f fist=%.4f peace=%.4f",
+            config.gestures.pinch_threshold,
+            config.gestures.fist_tip_wrist_threshold,
+            config.gestures.peace_min_separation,
+        )
+        return 0
+    finally:
+        capture.release()
+        tracker.close()
+        if not args.no_display:
+            cv2.destroyAllWindows()
+
+
 def run_application(args: argparse.Namespace) -> int:
     """Run the camera, tracking, gesture, and mouse loop."""
     config_path = args.config.expanduser().resolve()
@@ -719,6 +814,10 @@ def run_application(args: argparse.Namespace) -> int:
     last_scroll_frame = -10_000
     last_observation: HandObservation | None = None
     last_result: GestureResult | None = None
+    second_observation: HandObservation | None = None
+    second_result: GestureResult | None = None
+    paused = False
+    last_second_action_frame = -10_000
     last_detection_frame = -1
     fps_counter = FPSCounter()
     processing_mode = "async" if processor is not None else "sync"
@@ -780,12 +879,13 @@ def run_application(args: argparse.Namespace) -> int:
                 completed = processor.take_latest()
             elif should_process:
                 timestamp_ms = int(time.monotonic_ns() // 1_000_000)
-                observation = tracker.detect(
+                observations = tracker.detect_all(
                     frame,
                     timestamp_ms,
                     roi_percentage=config.performance.roi_percentage,
                 )
-                completed = ProcessedFrame(frame_number, timestamp_ms, observation)
+                observation = observations[0] if observations else None
+                completed = ProcessedFrame(frame_number, timestamp_ms, observation, None, observations)
 
             tap_event = False
             drag_started = False
@@ -813,6 +913,9 @@ def run_application(args: argparse.Namespace) -> int:
                             dwell_detector.reset()
                         last_observation = None
                         last_result = None
+                        second_observation = None
+                        second_result = None
+                        paused = False
                     else:
                         last_observation = observation
                         last_result = recognizer.recognize(observation.landmarks)
@@ -843,6 +946,38 @@ def run_application(args: argparse.Namespace) -> int:
                             tap_conflict_until = (
                                 frame_number + config.tap.conflict_lock_frames
                             )
+                        # Second hand: pause + shortcuts (only when 2+ hands).
+                        all_obs = processed.observations or ((observation,) if observation else ())
+                        if len(all_obs) > 1 and all_obs[1] is not None:
+                            second_observation = all_obs[1]
+                            second_result = recognizer.recognize(second_observation.landmarks)
+                            if not args.calibrate_tap and mouse is not None:
+                                if second_result.gesture is Gesture.FIST:
+                                    if not paused:
+                                        paused = True
+                                        if mouse.is_dragging:
+                                            mouse.set_dragging(False)
+                                        LOGGER.info("Second-hand pause ON at frame %d", frame_number)
+                                elif second_result.gesture in (Gesture.POINTING, Gesture.UNKNOWN):
+                                    if paused:
+                                        paused = False
+                                        LOGGER.info("Second-hand pause OFF at frame %d", frame_number)
+                                if (
+                                    frame_number - last_second_action_frame
+                                    >= config.clicks.cooldown_frames
+                                ):
+                                    if second_result.gesture is Gesture.PINCH:
+                                        if mouse.perform_click(ClickAction.MIDDLE_CLICK):
+                                            last_second_action_frame = frame_number
+                                            feedback = ClickFeedback(ClickAction.MIDDLE_CLICK, frame_number)
+                                            LOGGER.info("Second-hand middle click at frame %d", frame_number)
+                                    elif second_result.gesture is Gesture.PEACE:
+                                        if mouse.hotkey("ctrl", "c"):
+                                            last_second_action_frame = frame_number
+                                            LOGGER.info("Second-hand copy (ctrl+c) at frame %d", frame_number)
+                        else:
+                            second_observation = None
+                            second_result = None
 
             observation = last_observation
             result = last_result
@@ -853,6 +988,7 @@ def run_application(args: argparse.Namespace) -> int:
 
             if (
                 not args.calibrate_tap
+                and not paused
                 and mouse is not None
                 and result is not None
                 and (result.gesture is Gesture.POINTING or dragging)
@@ -876,6 +1012,7 @@ def run_application(args: argparse.Namespace) -> int:
                 scroll_dir = recognizer.scroll_with_hysteresis(last_observation.landmarks)
             if (
                 not args.calibrate_tap
+                and not paused
                 and mouse is not None
                 and scroll_dir is not None
                 and frame_number - last_scroll_frame
@@ -884,7 +1021,7 @@ def run_application(args: argparse.Namespace) -> int:
                 if mouse.scroll(scroll_dir.value, config.gestures.scroll_amount):
                     last_scroll_frame = frame_number
 
-            if not args.calibrate_tap:
+            if not args.calibrate_tap and not paused:
                 if tap_event:
                     # A detected tap owns the click path and briefly suppresses
                     # a simultaneous fist/peace classification.
@@ -927,6 +1064,12 @@ def run_application(args: argparse.Namespace) -> int:
                     observation.landmarks,
                     landmark_color=gesture_color(result.gesture if result else None),
                 )
+            if config.display.show_landmarks and second_observation is not None:
+                draw_hand_landmarks(
+                    frame,
+                    second_observation.landmarks,
+                    landmark_color=(255, 255, 255),
+                )
             tap_marker_feedback = feedback
             if tap_event_active and tap_feedback_frame is not None:
                 tap_marker_feedback = ClickFeedback(
@@ -952,6 +1095,10 @@ def run_application(args: argparse.Namespace) -> int:
                 calibration_mode=args.calibrate_tap,
                 processing_mode=processing_mode,
                 show_fps=config.display.show_fps,
+                paused=paused,
+                second_result=second_result,
+                backend_name=mouse.backend_name if mouse is not None else "",
+                dragging=dragging,
             )
             if config.display.show_instructions:
                 _draw_instructions(frame, args.calibrate_tap)
@@ -1111,6 +1258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.self_test:
             return run_self_test(args.config.expanduser().resolve(), args.model)
+        if args.calibrate:
+            return run_calibration(args)
         return run_application(args)
     except KeyboardInterrupt:
         LOGGER.info("Interrupted by user")

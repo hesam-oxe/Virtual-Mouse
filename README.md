@@ -1,24 +1,25 @@
-# 🖱️ Virtual Mouse Using Hand Gestures
+# 🖱️ Virtual Mouse Using Hand Gestures — God-Level by hesam-oxe
 
-A local, webcam-based virtual mouse built with Python 3.14, OpenCV, PyAutoGUI, and the modern MediaPipe Tasks `HandLandmarker` API.
+A local, webcam-based virtual mouse built with Python 3.14, OpenCV, MediaPipe Tasks `HandLandmarker`, pluggable mouse backends (PyAutoGUI/xdotool/fake), OneEuro smoothing, pinch-hold drag, dwell-click, two-hand shortcuts, and personal calibration.
 
-The application tracks one hand in real time, moves the cursor with the index finger, and recognizes click and scroll gestures. Gesture edges are stabilized and rate-limited so holding a pose does not produce a stream of duplicate clicks.
+The application tracks up to two hands in real time, moves the cursor with the index finger, and recognizes click, drag, and scroll gestures. Gesture edges are stabilized and rate-limited so holding a pose does not produce a stream of duplicate clicks.
 
 > **Privacy:** Camera frames are processed locally. The application does not upload video or landmark data.
 
-## ✨ Features
+## ✨ Features (God-Level)
 
-- **Modern MediaPipe Tasks API** using `mediapipe.tasks.python.vision.hand_landmarker.HandLandmarker` (MediaPipe 1.0+).
-- **Index-finger cursor control** with exponential low-pass smoothing, a pixel dead zone, and configurable screen-region mapping.
-- **Left click:** thumb and index fingertip pinch.
-- **Right click:** all five fingertips close to the wrist (fist).
-- **Double click:** index and middle finger peace sign.
-- **Optional scroll:** thumb up/down with the other fingers curled.
-- **Click debounce:** stable-frame confirmation, gesture edge detection, and a configurable cooldown (20 frames by default).
-- **On-screen display:** FPS, current gesture, handedness, landmarks, standard hand connections, cooldown state, and click feedback rings.
-- **Automatic model download:** the `.task` model is downloaded atomically on first launch if it is missing.
-- **Runtime adjustments:** reload configuration, change smoothing, toggle overlays, and save settings without editing code.
-- **Graceful shutdown and error handling:** press `q` or `Esc` to release the camera and MediaPipe resources.
+- **Modern MediaPipe Tasks API** using `mediapipe.tasks.python.vision.hand_landmarker.HandLandmarker` (MediaPipe 1.0+), `detect_all()` sorted by confidence.
+- **Index-finger cursor control** with exponential or OneEuro adaptive smoothing (`mouse.smoothing_backend`), pixel dead zone, multi-monitor virtual desktop, and configurable screen-region mapping.
+- **Left click:** fast index tap (velocity-based `TapDetector`); optional dwell-click (hover 600ms).
+- **Drag:** pinch-hold 18 frames to `mouseDown`, release to `mouseUp` (`gestures.drag_hold_frames`).
+- **Right click:** fist. **Double click:** peace. **Middle click (2nd hand pinch).**
+- **Two-hand:** primary = cursor, second fist = pause, second pinch = middle-click, second peace = copy.
+- **Personal calibration:** `python main.py --calibrate` samples pinch/fist/peace and saves thresholds.
+- **Backends:** `auto` selects xdotool (low-latency X11) then PyAutoGUI; `fake` for tests. Multi-monitor via xrandr.
+- **Click debounce:** stable-frame confirmation, gesture edge detection, cooldown 20 frames.
+- **On-screen display:** FPS, gesture + DRAG/PAUSED, handedness, 2nd hand, backend, landmarks, cooldown, click rings.
+- **Reliability:** camera reconnect with backoff, file logging (`virtual_mouse.log`), model SHA256 check, FPS cap, graceful shutdown (`q`/`Esc`).
+- **Tests:** `pytest` (13 tests) + `python main.py --self-test` + CI + Docker.
 
 ## Demo
 
@@ -97,12 +98,16 @@ python main.py --model C:\path\to\hand_landmarker.task
 
 | Gesture | Action | Detection rule |
 | --- | --- | --- |
-| Index finger extended, other three fingers curled | Move cursor | Cursor follows the index fingertip; thumb position is ignored for movement |
-| Thumb + index pinch | Left click | Thumb/index distance is at or below `pinch_threshold` |
-| Fist | Right click | Every fingertip (thumb and four fingers) is closer to the wrist than `fist_tip_wrist_threshold` |
-| Index + middle peace sign | Double click | Index and middle are extended, ring and pinky are curled, and fingertips are separated |
-| Thumb up, other fingers curled | Scroll up | Optional scroll gesture |
-| Thumb down, other fingers curled | Scroll down | Optional scroll gesture |
+| Index extended, others curled | Move cursor | Cursor follows index fingertip |
+| Fast index tap (curl+extend) | Left click | `TapDetector` velocity/drop window; optional dwell hover |
+| Pinch-hold 18f | Drag start/end | `dist(4,8)<=pinch_threshold` held `drag_hold_frames`, release `drag_release_frames` |
+| Fist | Right click | All 5 tips closer than `fist_tip_wrist_threshold` |
+| Peace | Double click | Index+middle extended, ring+pinky curled, sep>=`peace_min_separation` |
+| Thumb up / down, others curled | Scroll | With hysteresis `scroll_hysteresis` |
+| 2nd hand fist | Pause ON | Primary input paused until 2nd open |
+| 2nd hand pinch / peace | Middle-click / Copy | `middleClick` / `ctrl+c` |
+
+Run `python main.py --calibrate` for personal thresholds.
 
 A gesture must be visible for the configured number of stable frames and must be released before it can fire again. The default 20-frame cooldown prevents click spam.
 

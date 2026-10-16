@@ -21,7 +21,8 @@
     "smoothing_backend": "exponential",
     "one_euro_min_cutoff": 1.0,
     "one_euro_beta": 0.05,
-    "one_euro_dcutoff": 1.0
+    "one_euro_dcutoff": 1.0,
+    "backend": "auto"
   },
   "gestures": {
     "pinch_threshold": 0.055,

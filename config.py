@@ -96,6 +96,7 @@ class MouseSettings:
     one_euro_min_cutoff: float = 1.0
     one_euro_beta: float = 0.05
     one_euro_dcutoff: float = 1.0
+    backend: str = "auto"
 
     def validate(self) -> None:
         """Validate cursor movement settings."""
@@ -110,6 +111,8 @@ class MouseSettings:
             raise ConfigError("mouse.dead_zone_pixels cannot be negative")
         if self.smoothing_backend not in ("exponential", "one_euro"):
             raise ConfigError("mouse.smoothing_backend must be exponential or one_euro")
+        if self.backend not in ("auto", "pyautogui", "xdotool", "fake"):
+            raise ConfigError("mouse.backend must be auto, pyautogui, xdotool or fake")
         for name in ("one_euro_min_cutoff", "one_euro_beta", "one_euro_dcutoff"):
             if not math.isfinite(float(getattr(self, name))):
                 raise ConfigError(f"mouse.{name} must be finite")
