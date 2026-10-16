@@ -66,6 +66,8 @@ class CameraSettings:
     height: int = 480
     fps: int = 30
     flip: bool = True
+    reconnect_attempts: int = 3
+    reconnect_backoff_seconds: float = 1.0
 
     def validate(self) -> None:
         """Validate camera settings."""
@@ -74,6 +76,12 @@ class CameraSettings:
         for name in ("width", "height", "fps"):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"camera.{name} must be positive")
+        if self.reconnect_attempts < 0:
+            raise ConfigError("camera.reconnect_attempts cannot be negative")
+        if not math.isfinite(float(self.reconnect_backoff_seconds)):
+            raise ConfigError("camera.reconnect_backoff_seconds must be finite")
+        if self.reconnect_backoff_seconds < 0.0:
+            raise ConfigError("camera.reconnect_backoff_seconds cannot be negative")
 
 
 @dataclass
@@ -84,6 +92,10 @@ class MouseSettings:
     movement_scale: float = 1.0
     dead_zone_pixels: float = 1.5
     screen_region: ScreenRegion = field(default_factory=ScreenRegion)
+    smoothing_backend: str = "exponential"
+    one_euro_min_cutoff: float = 1.0
+    one_euro_beta: float = 0.05
+    one_euro_dcutoff: float = 1.0
 
     def validate(self) -> None:
         """Validate cursor movement settings."""
@@ -96,6 +108,13 @@ class MouseSettings:
             raise ConfigError("mouse.movement_scale must be positive")
         if self.dead_zone_pixels < 0.0:
             raise ConfigError("mouse.dead_zone_pixels cannot be negative")
+        if self.smoothing_backend not in ("exponential", "one_euro"):
+            raise ConfigError("mouse.smoothing_backend must be exponential or one_euro")
+        for name in ("one_euro_min_cutoff", "one_euro_beta", "one_euro_dcutoff"):
+            if not math.isfinite(float(getattr(self, name))):
+                raise ConfigError(f"mouse.{name} must be finite")
+            if getattr(self, name) <= 0.0:
+                raise ConfigError(f"mouse.{name} must be positive")
         self.screen_region.validate()
 
     @property
@@ -122,6 +141,10 @@ class GestureSettings:
     scroll_deadzone: float = 0.035
     scroll_amount: int = 3
     scroll_cooldown_frames: int = 4
+    scroll_hysteresis: float = 0.01
+    drag_enabled: bool = True
+    drag_hold_frames: int = 18
+    drag_release_frames: int = 3
 
     def validate(self) -> None:
         """Validate gesture thresholds and switches."""
@@ -153,6 +176,14 @@ class GestureSettings:
             raise ConfigError("gestures.scroll_amount must be positive")
         if self.scroll_cooldown_frames < 0:
             raise ConfigError("gestures.scroll_cooldown_frames cannot be negative")
+        if not math.isfinite(float(self.scroll_hysteresis)):
+            raise ConfigError("gestures.scroll_hysteresis must be finite")
+        if self.scroll_hysteresis < 0.0:
+            raise ConfigError("gestures.scroll_hysteresis cannot be negative")
+        if self.drag_hold_frames < 1:
+            raise ConfigError("gestures.drag_hold_frames must be at least 1")
+        if self.drag_release_frames < 1:
+            raise ConfigError("gestures.drag_release_frames must be at least 1")
 
 
 @dataclass
@@ -211,6 +242,9 @@ class ClickSettings:
     stable_frames: int = 2
     double_click_interval_frames: int = 8
     feedback_frames: int = 8
+    dwell_enabled: bool = False
+    dwell_time_ms: int = 600
+    dwell_radius_px: int = 12
 
     def validate(self) -> None:
         """Validate click timing settings."""
@@ -224,6 +258,10 @@ class ClickSettings:
                 raise ConfigError(f"clicks.{name} cannot be negative")
         if self.stable_frames < 1:
             raise ConfigError("clicks.stable_frames must be at least 1")
+        if self.dwell_time_ms < 100:
+            raise ConfigError("clicks.dwell_time_ms must be at least 100")
+        if self.dwell_radius_px < 2:
+            raise ConfigError("clicks.dwell_radius_px must be at least 2")
 
 
 @dataclass
@@ -258,6 +296,7 @@ class PerformanceSettings:
     use_async_processing: bool = True
     use_gpu: bool = False
     async_queue_size: int = 1
+    target_fps: float = 60.0
 
     def validate(self) -> None:
         """Validate performance settings."""
@@ -269,6 +308,10 @@ class PerformanceSettings:
             raise ConfigError("performance.roi_percentage must be in (0, 1]")
         if self.async_queue_size < 1:
             raise ConfigError("performance.async_queue_size must be at least 1")
+        if not math.isfinite(float(self.target_fps)):
+            raise ConfigError("performance.target_fps must be finite")
+        if not 5.0 <= self.target_fps <= 240.0:
+            raise ConfigError("performance.target_fps must be between 5 and 240")
 
 
 @dataclass
@@ -293,6 +336,8 @@ class ModelSettings:
     path: str = "models/hand_landmarker.task"
     url: str = DEFAULT_MODEL_URL
     download_timeout_seconds: float = 60.0
+    expected_sha256: str = ""
+    require_https: bool = True
 
     def validate(self) -> None:
         """Validate model download settings."""
@@ -300,10 +345,32 @@ class ModelSettings:
             raise ConfigError("model.path cannot be empty")
         if not self.url.startswith(("http://", "https://")):
             raise ConfigError("model.url must be an HTTP or HTTPS URL")
+        if self.require_https and self.url.startswith("http://"):
+            raise ConfigError("model.url must use HTTPS when require_https is true")
         if not math.isfinite(float(self.download_timeout_seconds)):
             raise ConfigError("model.download_timeout_seconds must be finite")
         if self.download_timeout_seconds <= 0.0:
             raise ConfigError("model.download_timeout_seconds must be positive")
+        if self.expected_sha256 and len(self.expected_sha256.strip()) != 64:
+            raise ConfigError("model.expected_sha256 must be a 64-char hex digest")
+
+
+@dataclass
+class LogSettings:
+    """File logging settings."""
+
+    file: str = "virtual_mouse.log"
+    max_bytes: int = 1_000_000
+    backup_count: int = 3
+
+    def validate(self) -> None:
+        """Validate logging settings."""
+        if not self.file.strip():
+            raise ConfigError("logging.file cannot be empty")
+        if self.max_bytes < 10_000:
+            raise ConfigError("logging.max_bytes must be at least 10000")
+        if self.backup_count < 0:
+            raise ConfigError("logging.backup_count cannot be negative")
 
 
 @dataclass
@@ -319,6 +386,7 @@ class AppConfig:
     performance: PerformanceSettings = field(default_factory=PerformanceSettings)
     display: DisplaySettings = field(default_factory=DisplaySettings)
     model: ModelSettings = field(default_factory=ModelSettings)
+    logging: LogSettings = field(default_factory=LogSettings)
 
     def validate(self) -> "AppConfig":
         """Validate all nested settings and return ``self`` for chaining."""
@@ -331,6 +399,7 @@ class AppConfig:
         self.performance.validate()
         self.display.validate()
         self.model.validate()
+        self.logging.validate()
         return self
 
     def to_dict(self) -> dict[str, Any]:

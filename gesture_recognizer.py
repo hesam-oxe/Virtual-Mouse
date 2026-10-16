@@ -338,6 +338,56 @@ class TapDetector:
         return False
 
 
+class PinchDragDetector:
+    """Start drag after pinch held, release after pinch lost."""
+
+    def __init__(self, settings: GestureSettings | None = None) -> None:
+        """Initialize drag counters."""
+        self.settings = settings or GestureSettings()
+        self.dragging = False
+        self._hold_frames = 0
+        self._release_frames = 0
+
+    def update_settings(self, settings: GestureSettings) -> None:
+        """Apply new thresholds, keeping drag state."""
+        settings.validate()
+        self.settings = settings
+
+    def reset(self) -> None:
+        """Clear drag state after hand loss."""
+        self.dragging = False
+        self._hold_frames = 0
+        self._release_frames = 0
+
+    def update(self, pinch_active: bool) -> tuple[bool, bool, bool]:
+        """Update with pinch state.
+
+        Returns:
+            (dragging, started, ended) for this frame.
+        """
+        if not self.settings.drag_enabled:
+            was = self.dragging
+            self.reset()
+            return False, False, was
+        if pinch_active:
+            self._release_frames = 0
+            self._hold_frames += 1
+            if not self.dragging and self._hold_frames >= self.settings.drag_hold_frames:
+                self.dragging = True
+                return True, True, False
+            return self.dragging, False, False
+        self._hold_frames = 0
+        if not self.dragging:
+            self._release_frames = 0
+            return False, False, False
+        self._release_frames += 1
+        if self._release_frames >= self.settings.drag_release_frames:
+            self.dragging = False
+            self._release_frames = 0
+            return False, False, True
+        return True, False, False
+
+
 def _coordinates(landmark: NormalizedLandmark) -> tuple[float, float] | None:
     """Return finite x/y coordinates, or ``None`` for an invalid landmark."""
     if landmark.x is None or landmark.y is None:
@@ -594,6 +644,8 @@ class GestureRecognizer:
         self.settings = settings or GestureSettings()
         self.settings.validate()
         self.tap_detector = TapDetector(tap_settings)
+        self.drag_detector = PinchDragDetector(self.settings)
+        self._last_scroll: ScrollDirection | None = None
 
     def recognize(
         self, landmarks: Sequence[NormalizedLandmark]
@@ -635,6 +687,49 @@ class GestureRecognizer:
     def reset_tap(self) -> None:
         """Clear tap history after hand loss or a tracking reset."""
         self.tap_detector.reset()
+        self.drag_detector.reset()
+        self._last_scroll = None
+
+    def detect_drag(
+        self, landmarks: Sequence[NormalizedLandmark]
+    ) -> tuple[bool, bool, bool]:
+        """Update pinch-hold drag state, return (dragging, started, ended)."""
+        if len(landmarks) < 21:
+            self.drag_detector.reset()
+            return False, False, False
+        pinch = is_pinch(landmarks, self.settings)
+        # Only index-extended pinch counts as drag (matches click_action_for).
+        states = finger_states(landmarks, self.settings)
+        if not states.get("index", False):
+            pinch = False
+        return self.drag_detector.update(pinch)
+
+    def scroll_with_hysteresis(
+        self, landmarks: Sequence[NormalizedLandmark]
+    ) -> ScrollDirection | None:
+        """Return scroll direction with hysteresis to avoid flicker."""
+        raw = scroll_direction(landmarks, self.settings)
+        if raw is not None:
+            self._last_scroll = raw
+            return raw
+        if self._last_scroll is None or len(landmarks) <= max(THUMB_TIP, WRIST):
+            return None
+        # Stay in scroll while thumb remains beyond deadzone minus hysteresis.
+        thumb_tip = landmarks[THUMB_TIP]
+        wrist = landmarks[WRIST]
+        thumb_point = _coordinates(thumb_tip)
+        wrist_point = _coordinates(wrist)
+        if thumb_point is None or wrist_point is None:
+            self._last_scroll = None
+            return None
+        vertical_delta = thumb_point[1] - wrist_point[1]
+        hold_band = max(0.0, self.settings.scroll_deadzone - self.settings.scroll_hysteresis)
+        if self._last_scroll is ScrollDirection.UP and vertical_delta < -hold_band:
+            return ScrollDirection.UP
+        if self._last_scroll is ScrollDirection.DOWN and vertical_delta > hold_band:
+            return ScrollDirection.DOWN
+        self._last_scroll = None
+        return None
 
     def update_settings(
         self,
@@ -644,5 +739,6 @@ class GestureRecognizer:
         """Replace settings after a configuration reload or adjustment."""
         settings.validate()
         self.settings = settings
+        self.drag_detector.update_settings(settings)
         if tap_settings is not None:
             self.tap_detector.update_settings(tap_settings)

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual-mouse"
+version = "2.0.0"
+requires-python = ">=3.11"
+dependencies = [
+  "mediapipe==1.1.1",
+  "opencv-contrib-python==5.0.0.93",
+  "pyautogui==0.9.54",
+  "numpy==2.5.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "coverage>=7", "ruff>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.coverage.run]
+source = ["."]
+omit = [".venv/*", "tests/*", "mouse_legacy.py"]
