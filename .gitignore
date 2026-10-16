@@ -3,8 +3,26 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.env
+.env.*
+*.pem
+*.key
+
+# Credentials - never commit tokens
+.git-credentials
+*credentials*.json
+*token*.txt
+ghp_*
+github_token*
 
 # Auto-downloaded Hand Landmarker model (re-downloaded on first run)
 models/*.task
 models/*.part
 *.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

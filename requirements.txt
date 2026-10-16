@@ -1,5 +1,6 @@
-mediapipe>=1.0.0
-opencv-python>=4.8.0
-opencv-contrib-python>=4.8.0
-pyautogui>=0.9.54
-numpy>=1.24.0
+# Pinned production requirements (tested with Python 3.14.4)
+# opencv-contrib-python already provides cv2, do not install opencv-python alongside
+mediapipe==1.1.1
+opencv-contrib-python==5.0.0.93
+pyautogui==0.9.54
+numpy==2.5.4
