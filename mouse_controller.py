@@ -128,6 +128,96 @@ class ScreenPoint:
     y: int
 
 
+class OneEuroFilter:
+    """Adaptive low-pass filter for jitter-free cursor motion."""
+
+    def __init__(self, min_cutoff: float = 1.0, beta: float = 0.05, dcutoff: float = 1.0) -> None:
+        """Initialize filter state."""
+        if min_cutoff <= 0.0 or dcutoff <= 0.0 or beta < 0.0:
+            raise ValueError("OneEuro parameters must be positive")
+        self.min_cutoff = min_cutoff
+        self.beta = beta
+        self.dcutoff = dcutoff
+        self._x: float | None = None
+        self._dx: float = 0.0
+        self._last_time: float | None = None
+
+    def _alpha(self, cutoff: float, rate: float) -> float:
+        """Compute smoothing factor for a cutoff frequency."""
+        import math
+
+        tau = 1.0 / (2.0 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau * rate)
+
+    def filter(self, value: float, timestamp: float | None = None) -> float:
+        """Filter one sample."""
+        import math
+        import time
+
+        now = timestamp if timestamp is not None else time.perf_counter()
+        if self._x is None or self._last_time is None:
+            self._x = value
+            self._last_time = now
+            self._dx = 0.0
+            return value
+        rate = 1.0 / max(1e-6, now - self._last_time)
+        self._last_time = now
+        d_cutoff_alpha = self._alpha(self.dcutoff, rate)
+        dx = (value - self._x) * rate
+        self._dx = d_cutoff_alpha * dx + (1.0 - d_cutoff_alpha) * self._dx
+        cutoff = self.min_cutoff + self.beta * abs(self._dx)
+        alpha = self._alpha(cutoff, rate)
+        self._x = alpha * value + (1.0 - alpha) * self._x
+        return self._x
+
+    def reset(self) -> None:
+        """Clear filter state."""
+        self._x = None
+        self._dx = 0.0
+        self._last_time = None
+
+
+class DwellClickDetector:
+    """Emit a left click after hovering stationary."""
+
+    def __init__(self, dwell_time_ms: int = 600, dwell_radius_px: int = 12) -> None:
+        """Initialize dwell timing."""
+        self.dwell_time_ms = dwell_time_ms
+        self.dwell_radius_px = dwell_radius_px
+        self._anchor: ScreenPoint | None = None
+        self._anchor_time: float | None = None
+        self._fired = False
+
+    def update(self, point: ScreenPoint, now: float | None = None) -> bool:
+        """Update with a cursor point, return True on dwell edge."""
+        import math
+        import time
+
+        current = now if now is not None else time.perf_counter()
+        if self._anchor is None or self._anchor_time is None:
+            self._anchor = point
+            self._anchor_time = current
+            self._fired = False
+            return False
+        dist = math.hypot(point.x - self._anchor.x, point.y - self._anchor.y)
+        if dist > self.dwell_radius_px:
+            self._anchor = point
+            self._anchor_time = current
+            self._fired = False
+            return False
+        elapsed_ms = (current - self._anchor_time) * 1000.0
+        if not self._fired and elapsed_ms >= self.dwell_time_ms:
+            self._fired = True
+            return True
+        return False
+
+    def reset(self) -> None:
+        """Clear dwell state."""
+        self._anchor = None
+        self._anchor_time = None
+        self._fired = False
+
+
 class MouseController:
     """Translate normalized index-finger coordinates into mouse actions."""
 
@@ -152,6 +242,13 @@ class MouseController:
         self._last_position: ScreenPoint | None = None
         self._pyautogui: ModuleType | Any | None = None
         self._movement_error_logged = False
+        self._one_euro_x = OneEuroFilter(
+            settings.one_euro_min_cutoff, settings.one_euro_beta, settings.one_euro_dcutoff
+        )
+        self._one_euro_y = OneEuroFilter(
+            settings.one_euro_min_cutoff, settings.one_euro_beta, settings.one_euro_dcutoff
+        )
+        self._dragging = False
 
     @staticmethod
     def _query_screen_size() -> tuple[int, int]:
@@ -185,6 +282,12 @@ class MouseController:
         """Apply runtime-updated mouse settings without resetting position."""
         settings.validate()
         self.settings = settings
+        self._one_euro_x = OneEuroFilter(
+            settings.one_euro_min_cutoff, settings.one_euro_beta, settings.one_euro_dcutoff
+        )
+        self._one_euro_y = OneEuroFilter(
+            settings.one_euro_min_cutoff, settings.one_euro_beta, settings.one_euro_dcutoff
+        )
 
     def set_smoothing_factor(self, factor: float) -> None:
         """Set the exponential smoothing factor at runtime."""
@@ -226,12 +329,26 @@ class MouseController:
     ) -> ScreenPoint:
         """Smooth and emit one cursor movement command.
 
-        The exponential low-pass filter uses the requested convention:
-        ``current += (target - current) / smoothing_factor``.  A small
-        pixel dead zone suppresses residual model jitter.
+        Supports ``exponential`` (``current += (target-current)/factor``) and
+        ``one_euro`` adaptive filtering. A small pixel dead zone suppresses
+        residual model jitter.
         """
+        import time
+
         target_x, target_y = self.map_to_screen(normalized_x, normalized_y)
-        if self._smoothed_position is None:
+        if self.settings.smoothing_backend == "one_euro":
+            now = time.perf_counter()
+            smoothed_x = float(self._one_euro_x.filter(target_x, now))
+            smoothed_y = float(self._one_euro_y.filter(target_y, now))
+            if self._smoothed_position is not None:
+                current_x, current_y = self._smoothed_position
+                if math.hypot(smoothed_x - current_x, smoothed_y - current_y) < self.settings.dead_zone_pixels:
+                    point = self._last_position or ScreenPoint(
+                        int(round(current_x)), int(round(current_y))
+                    )
+                    self._last_position = point
+                    return point
+        elif self._smoothed_position is None:
             smoothed_x, smoothed_y = target_x, target_y
         else:
             current_x, current_y = self._smoothed_position
@@ -295,6 +412,28 @@ class MouseController:
             return True
         except Exception as exc:
             LOGGER.error("Unable to execute %s: %s", action.value, exc)
+            return False
+
+    @property
+    def is_dragging(self) -> bool:
+        """Whether a drag (mouse button held) is active."""
+        return self._dragging
+
+    def set_dragging(self, dragging: bool) -> bool:
+        """Press or release the left button for drag gestures."""
+        if dragging == self._dragging:
+            return True
+        try:
+            pyautogui = self._load_pyautogui()
+            if dragging:
+                pyautogui.mouseDown()
+            else:
+                pyautogui.mouseUp()
+            self._dragging = dragging
+            LOGGER.info("Drag %s", "started" if dragging else "ended")
+            return True
+        except Exception as exc:
+            LOGGER.error("Unable to set drag=%s: %s", dragging, exc)
             return False
 
     def scroll(self, direction: str, amount: int) -> bool:

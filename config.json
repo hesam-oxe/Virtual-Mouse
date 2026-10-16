@@ -4,7 +4,9 @@
     "width": 640,
     "height": 480,
     "fps": 30,
-    "flip": true
+    "flip": true,
+    "reconnect_attempts": 3,
+    "reconnect_backoff_seconds": 1.0
   },
   "mouse": {
     "smoothing_factor": 5.0,
@@ -15,7 +17,11 @@
       "y": 0.0,
       "width": 1.0,
       "height": 1.0
-    }
+    },
+    "smoothing_backend": "exponential",
+    "one_euro_min_cutoff": 1.0,
+    "one_euro_beta": 0.05,
+    "one_euro_dcutoff": 1.0
   },
   "gestures": {
     "pinch_threshold": 0.055,
@@ -26,7 +32,11 @@
     "scroll_enabled": true,
     "scroll_deadzone": 0.035,
     "scroll_amount": 3,
-    "scroll_cooldown_frames": 4
+    "scroll_cooldown_frames": 4,
+    "scroll_hysteresis": 0.01,
+    "drag_enabled": true,
+    "drag_hold_frames": 18,
+    "drag_release_frames": 3
   },
   "tap": {
     "enabled": true,
@@ -45,7 +55,10 @@
     "cooldown_frames": 20,
     "stable_frames": 2,
     "double_click_interval_frames": 8,
-    "feedback_frames": 8
+    "feedback_frames": 8,
+    "dwell_enabled": false,
+    "dwell_time_ms": 600,
+    "dwell_radius_px": 12
   },
   "detection": {
     "num_hands": 1,
@@ -58,7 +71,8 @@
     "roi_percentage": 0.7,
     "use_async_processing": true,
     "use_gpu": false,
-    "async_queue_size": 1
+    "async_queue_size": 1,
+    "target_fps": 60.0
   },
   "display": {
     "window_name": "Virtual Mouse",
@@ -69,6 +83,13 @@
   "model": {
     "path": "models/hand_landmarker.task",
     "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-    "download_timeout_seconds": 60.0
+    "download_timeout_seconds": 60.0,
+    "expected_sha256": "",
+    "require_https": true
+  },
+  "logging": {
+    "file": "virtual_mouse.log",
+    "max_bytes": 1000000,
+    "backup_count": 3
   }
 }

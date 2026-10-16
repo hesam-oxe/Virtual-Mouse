@@ -78,11 +78,23 @@ def _map_landmark_to_full_frame(
     )
 
 
+def sha256_of_file(path: str | Path) -> str:
+    """Return the hex SHA256 digest of a file."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def download_model(
     model_path: str | Path,
     model_url: str = MODEL_URL,
     timeout_seconds: float = 60.0,
     force: bool = False,
+    expected_sha256: str = "",
 ) -> Path:
     """Download the MediaPipe Hand Landmarker model if necessary.
 
@@ -95,6 +107,7 @@ def download_model(
         model_url: Source URL for the model.
         timeout_seconds: Socket timeout for the HTTP request.
         force: Re-download even when a non-empty model already exists.
+        expected_sha256: Optional hex digest verified after download.
 
     Returns:
         The path to the available model.
@@ -156,6 +169,22 @@ def download_model(
         raise ModelDownloadError(
             f"Unable to download Hand Landmarker model from {model_url}: {exc}"
         ) from exc
+    if expected_sha256:
+        actual = sha256_of_file(destination)
+        if actual.lower() != expected_sha256.strip().lower():
+            temporary.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise ModelDownloadError(
+                f"Model SHA256 mismatch: expected {expected_sha256[:16]}..., got {actual[:16]}..."
+            )
+        LOGGER.info("Model SHA256 verified: %s", actual[:16])
+    else:
+        LOGGER.info(
+            "Hand Landmarker model ready: %s (sha256=%s)",
+            destination,
+            sha256_of_file(destination)[:16],
+        )
+        return destination
     LOGGER.info("Hand Landmarker model ready: %s", destination)
     return destination
 

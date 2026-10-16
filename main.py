@@ -85,15 +85,28 @@ class FPSCounter:
         return self.value
 
 
-def configure_logging(level_name: str) -> None:
+def configure_logging(level_name: str, log_file: str | None = None) -> None:
     """Configure application logging once for command-line execution."""
+    from logging.handlers import RotatingFileHandler
+
     level = getattr(logging, level_name.upper(), logging.INFO)
     if not isinstance(level, int):
         level = logging.INFO
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file:
+        try:
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+            )
+            handlers.append(file_handler)
+        except OSError as exc:
+            logging.getLogger(__name__).warning("Could not open log file %s: %s", log_file, exc)
     logging.basicConfig(
         level=level,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%H:%M:%S",
+        handlers=handlers,
+        force=True,
     )
 
 
@@ -169,40 +182,52 @@ def prepare_model(
     config: AppConfig, config_path: Path, override: Path | None
 ) -> Path:
     """Ensure the model exists, downloading it atomically when necessary."""
+    if config.model.require_https and config.model.url.startswith("http://"):
+        raise ModelDownloadError("Model URL must use HTTPS (see model.require_https)")
     model_path = resolve_model_path(config, config_path, override)
     return download_model(
         model_path,
         model_url=config.model.url,
         timeout_seconds=config.model.download_timeout_seconds,
+        expected_sha256=config.model.expected_sha256,
     )
 
 
 def open_camera(config: AppConfig) -> cv2.VideoCapture:
-    """Open and configure the configured webcam."""
-    capture = cv2.VideoCapture(config.camera.index)
-    if not capture.isOpened():
+    """Open and configure the configured webcam with reconnect backoff."""
+    attempts = max(1, config.camera.reconnect_attempts + 1)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        capture = cv2.VideoCapture(config.camera.index)
+        if capture.isOpened():
+            # Keep the driver's queue shallow so the displayed frame and mouse target
+            # are as close as possible to the current hand pose.
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera.width)
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera.height)
+            capture.set(cv2.CAP_PROP_FPS, config.camera.fps)
+            actual_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = float(capture.get(cv2.CAP_PROP_FPS))
+            LOGGER.info(
+                "Camera %d opened (%dx%d requested, %.1f FPS reported, attempt %d/%d)",
+                config.camera.index,
+                actual_width,
+                actual_height,
+                actual_fps,
+                attempt,
+                attempts,
+            )
+            return capture
         capture.release()
-        raise CameraError(
+        last_error = CameraError(
             f"Could not open camera index {config.camera.index}. "
             "Check camera permissions and camera.index in config.json."
         )
-    # Keep the driver's queue shallow so the displayed frame and mouse target
-    # are as close as possible to the current hand pose.
-    capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera.width)
-    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera.height)
-    capture.set(cv2.CAP_PROP_FPS, config.camera.fps)
-    actual_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    actual_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    actual_fps = float(capture.get(cv2.CAP_PROP_FPS))
-    LOGGER.info(
-        "Camera %d opened (%dx%d requested, %.1f FPS reported)",
-        config.camera.index,
-        actual_width,
-        actual_height,
-        actual_fps,
-    )
-    return capture
+        if attempt < attempts:
+            LOGGER.warning("Camera open failed (attempt %d/%d), retrying...", attempt, attempts)
+            time.sleep(config.camera.reconnect_backoff_seconds)
+    raise last_error if last_error else CameraError("Could not open camera")
 
 
 def click_action_for(gesture: Gesture) -> ClickAction | None:
@@ -592,6 +617,36 @@ def run_self_test(config_path: Path, model_override: Path | None = None) -> int:
         raise AssertionError(f"screen mapping self-test failed: {mapped}")
     LOGGER.info("Screen mapping self-test passed: %s", mapped)
 
+    from mouse_controller import DwellClickDetector, OneEuroFilter
+
+    euro = OneEuroFilter(1.0, 0.05, 1.0)
+    first = euro.filter(100.0, 0.0)
+    second = euro.filter(100.0, 0.016)
+    if abs(first - 100.0) > 1e-6 or abs(second - 100.0) > 1e-3:
+        raise AssertionError(f"OneEuro steady-state failed: {first}, {second}")
+    LOGGER.info("OneEuro filter self-test passed")
+
+    dwell = DwellClickDetector(600, 12)
+    from mouse_controller import ScreenPoint
+
+    if dwell.update(ScreenPoint(100, 100), now=0.0):
+        raise AssertionError("dwell fired too early")
+    if not dwell.update(ScreenPoint(101, 101), now=0.7):
+        raise AssertionError("dwell did not fire after 700ms hover")
+    if dwell.update(ScreenPoint(102, 102), now=0.8):
+        raise AssertionError("dwell re-fired without reset")
+    LOGGER.info("Dwell detector self-test passed")
+
+    pinch_landmarks = _synthetic_landmarks("pinch")
+    drag_states = [recognizer.detect_drag(pinch_landmarks) for _ in range(config.gestures.drag_hold_frames + 2)]
+    if not drag_states[-1][0] or not any(s[1] for s in drag_states):
+        raise AssertionError(f"pinch-hold drag did not start: {drag_states[-1]}")
+    open_landmarks = _synthetic_landmarks("pointing")
+    release_states = [recognizer.detect_drag(open_landmarks) for _ in range(config.gestures.drag_release_frames + 2)]
+    if release_states[-1][0] or not any(s[2] for s in release_states):
+        raise AssertionError(f"drag did not release: {release_states[-1]}")
+    LOGGER.info("Pinch-hold drag self-test passed")
+
     with HandTracker(
         model_path,
         num_hands=config.detection.num_hands,
@@ -656,6 +711,7 @@ def run_application(args: argparse.Namespace) -> int:
 
     frame_number = 0
     failed_reads = 0
+    reconnects = 0
     feedback: ClickFeedback | None = None
     tap_feedback_frame: int | None = None
     tap_feedback_until = -1
@@ -666,13 +722,41 @@ def run_application(args: argparse.Namespace) -> int:
     last_detection_frame = -1
     fps_counter = FPSCounter()
     processing_mode = "async" if processor is not None else "sync"
+    dwell_detector = None
+    if config.clicks.dwell_enabled:
+        from mouse_controller import DwellClickDetector
+
+        dwell_detector = DwellClickDetector(
+            config.clicks.dwell_time_ms, config.clicks.dwell_radius_px
+        )
 
     try:
         while True:
+            frame_start = time.perf_counter()
             success, frame = capture.read()
             if not success or frame is None:
                 failed_reads += 1
                 if failed_reads >= 5:
+                    if reconnects < config.camera.reconnect_attempts:
+                        reconnects += 1
+                        LOGGER.warning(
+                            "Camera lost %d frames, reconnecting %d/%d...",
+                            failed_reads,
+                            reconnects,
+                            config.camera.reconnect_attempts,
+                        )
+                        try:
+                            capture.release()
+                        except Exception:
+                            pass
+                        time.sleep(config.camera.reconnect_backoff_seconds)
+                        try:
+                            capture = open_camera(config)
+                        except CameraError as exc:
+                            LOGGER.error("Camera reconnect failed: %s", exc)
+                            raise
+                        failed_reads = 0
+                        continue
                     raise CameraError(
                         "The webcam stopped returning frames after five "
                         "consecutive reads"
@@ -681,6 +765,7 @@ def run_application(args: argparse.Namespace) -> int:
                 time.sleep(0.02)
                 continue
             failed_reads = 0
+            reconnects = 0
             if config.camera.flip:
                 frame = cv2.flip(frame, 1)
 
@@ -703,11 +788,18 @@ def run_application(args: argparse.Namespace) -> int:
                 completed = ProcessedFrame(frame_number, timestamp_ms, observation)
 
             tap_event = False
+            drag_started = False
+            drag_ended = False
+            dragging = mouse.is_dragging if mouse is not None else False
             if completed is not None:
                 processed = completed
                 if processed.error is not None:
                     LOGGER.error("Hand processing error: %s", processed.error)
                     recognizer.reset_tap()
+                    if mouse is not None and mouse.is_dragging:
+                        mouse.set_dragging(False)
+                    if dwell_detector is not None:
+                        dwell_detector.reset()
                     last_observation = None
                     last_result = None
                 else:
@@ -715,17 +807,29 @@ def run_application(args: argparse.Namespace) -> int:
                     observation = processed.observation
                     if observation is None:
                         recognizer.reset_tap()
+                        if mouse is not None and mouse.is_dragging:
+                            mouse.set_dragging(False)
+                        if dwell_detector is not None:
+                            dwell_detector.reset()
                         last_observation = None
                         last_result = None
                     else:
                         last_observation = observation
                         last_result = recognizer.recognize(observation.landmarks)
+                        dragging, drag_started, drag_ended = recognizer.detect_drag(
+                            observation.landmarks
+                        )
+                        if not args.calibrate_tap and mouse is not None:
+                            if drag_started:
+                                mouse.set_dragging(True)
+                            elif drag_ended:
+                                mouse.set_dragging(False)
                         suppress_tap = last_result.gesture in (
                             Gesture.PINCH,
                             Gesture.PEACE,
                             Gesture.SCROLL_UP,
                             Gesture.SCROLL_DOWN,
-                        )
+                        ) or dragging
                         if recognizer.detect_tap_gesture(
                             observation.landmarks,
                             frame_number=processed.frame_number,
@@ -751,26 +855,33 @@ def run_application(args: argparse.Namespace) -> int:
                 not args.calibrate_tap
                 and mouse is not None
                 and result is not None
-                and result.gesture is Gesture.POINTING
+                and (result.gesture is Gesture.POINTING or dragging)
             ):
                 index_tip = observation.landmarks[8] if observation else None
                 if index_tip is not None and index_tip.x is not None and index_tip.y is not None:
-                    mouse.move_to_normalized(index_tip.x, index_tip.y)
+                    cursor_point = mouse.move_to_normalized(index_tip.x, index_tip.y)
+                    if (
+                        dwell_detector is not None
+                        and not dragging
+                        and result.gesture is Gesture.POINTING
+                        and dwell_detector.update(cursor_point)
+                    ):
+                        tap_event = True
+                        tap_feedback_frame = frame_number
+                        tap_feedback_until = frame_number + config.clicks.feedback_frames
+                        tap_conflict_until = frame_number + config.tap.conflict_lock_frames
 
+            scroll_dir = None
+            if not args.calibrate_tap and last_observation is not None:
+                scroll_dir = recognizer.scroll_with_hysteresis(last_observation.landmarks)
             if (
                 not args.calibrate_tap
                 and mouse is not None
-                and result is not None
-                and result.gesture in (Gesture.SCROLL_UP, Gesture.SCROLL_DOWN)
+                and scroll_dir is not None
                 and frame_number - last_scroll_frame
                 >= config.gestures.scroll_cooldown_frames
             ):
-                direction = (
-                    ScrollDirection.UP
-                    if result.gesture is Gesture.SCROLL_UP
-                    else ScrollDirection.DOWN
-                )
-                if mouse.scroll(direction.value, config.gestures.scroll_amount):
+                if mouse.scroll(scroll_dir.value, config.gestures.scroll_amount):
                     last_scroll_frame = frame_number
 
             if not args.calibrate_tap:
@@ -958,7 +1069,16 @@ def run_application(args: argparse.Namespace) -> int:
             if args.max_frames is not None and frame_number >= args.max_frames:
                 LOGGER.info("Reached configured maximum of %d frames", frame_number)
                 break
+            elapsed = time.perf_counter() - frame_start
+            min_frame_time = 1.0 / max(5.0, config.performance.target_fps)
+            if elapsed < min_frame_time:
+                time.sleep(min_frame_time - elapsed)
     finally:
+        try:
+            if mouse is not None and mouse.is_dragging:
+                mouse.set_dragging(False)
+        except Exception:
+            pass
         if processor is not None:
             processor.close()
         capture.release()
@@ -976,7 +1096,18 @@ def run_application(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Application entry point with user-friendly error handling."""
     args = parse_args(argv)
-    configure_logging(args.log_level)
+    try:
+        config_path = args.config.expanduser().resolve()
+        if config_path.exists():
+            try:
+                early_config = AppConfig.load(config_path)
+                configure_logging(args.log_level, early_config.logging.file)
+            except ConfigError:
+                configure_logging(args.log_level)
+        else:
+            configure_logging(args.log_level)
+    except Exception:
+        configure_logging(args.log_level)
     try:
         if args.self_test:
             return run_self_test(args.config.expanduser().resolve(), args.model)
