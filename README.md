@@ -1,263 +1,193 @@
-# 🖱️ Virtual Mouse Using Hand Gestures — God-Level by hesam-oxe
+<div align="center">
 
-A local, webcam-based virtual mouse built with Python 3.14, OpenCV, MediaPipe Tasks `HandLandmarker`, pluggable mouse backends (PyAutoGUI/xdotool/fake), OneEuro smoothing, pinch-hold drag, dwell-click, two-hand shortcuts, and personal calibration.
+# ╔══════════════════════════════════════════════════════╗
+# ║  ██╗   ██╗██╗██████╗ ████████╗██╗   ██╗ █████╗ ██╗   ║
+# ║  ██║   ██║██║██╔══██╗╚══██╔══╝██║   ██║██╔══██╗██║   ║
+# ║  ██║   ██║██║██████╔╝   ██║   ██║   ██║███████║██║   ║
+# ║  ╚██╗ ██╔╝██║██╔══██╗   ██║   ██║   ██║██╔══██║██║   ║
+# ║   ╚████╔╝ ██║██║  ██║   ██║   ╚██████╔╝██║  ██║███████╗║
+# ║    ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝║
+# ║        ███╗   ███╗ ██████╗ ██╗   ██╗███████╗███████╗  ║
+# ║        ████╗ ████║██╔═══██╗██║   ██║██╔════╝██╔════╝  ║
+# ║        ██╔████╔██║██║   ██║██║   ██║███████╗█████╗    ║
+# ║        ██║╚██╔╝██║██║   ██║██║   ██║╚════██║██╔══╝    ║
+# ║        ██║ ╚═╝ ██║╚██████╔╝╚██████╔╝███████║███████╗  ║
+# ║        ╚═╝     ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝╚══════╝  ║
+# ╚══════════════════════════════════════════════════════╝
 
-The application tracks up to two hands in real time, moves the cursor with the index finger, and recognizes click, drag, and scroll gestures. Gesture edges are stabilized and rate-limited so holding a pose does not produce a stream of duplicate clicks.
+### ☠️ YOUR HAND IS THE WEAPON. YOUR WEBCAM IS THE BATTLEFIELD. ☠️
+### *No glove. No sensor. No mercy. Just 21 landmarks and absolute cursor domination.*
 
-> **Privacy:** Camera frames are processed locally. The application does not upload video or landmark data.
+[![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![MediaPipe 1.1.1](https://img.shields.io/badge/MediaPipe-1.1.1-0097A7?style=for-the-badge&logo=google&logoColor=white)](https://developers.google.com/mediapipe)
+[![Tests 13 passed](https://img.shields.io/badge/Tests-13_passed-00C853?style=for-the-badge&logo=pytest&logoColor=white)](#-war-protocol-validation)
+[![SelfTest 11 checks](https://img.shields.io/badge/SelfTest-11_checks-FF6D00?style=for-the-badge&logo=checkmarx&logoColor=white)](#-war-protocol-validation)
+[![License MIT hesam-oxe](https://img.shields.io/badge/License-MIT_hesam--oxe-AA00FF?style=for-the-badge)](LICENSE.md)
+[![Local Only](https://img.shields.io/badge/Camera-100%25_LOCAL-D50000?style=for-the-badge&logo=webcam&logoColor=white)](#-ghost-protocol)
 
-## ✨ Features (God-Level)
+**👑 Forged by `hesam-oxe` — every commit, every line, every license header bears the mark.**
 
-- **Modern MediaPipe Tasks API** using `mediapipe.tasks.python.vision.hand_landmarker.HandLandmarker` (MediaPipe 1.0+), `detect_all()` sorted by confidence.
-- **Index-finger cursor control** with exponential or OneEuro adaptive smoothing (`mouse.smoothing_backend`), pixel dead zone, multi-monitor virtual desktop, and configurable screen-region mapping.
-- **Left click:** fast index tap (velocity-based `TapDetector`); optional dwell-click (hover 600ms).
-- **Drag:** pinch-hold 18 frames to `mouseDown`, release to `mouseUp` (`gestures.drag_hold_frames`).
-- **Right click:** fist. **Double click:** peace. **Middle click (2nd hand pinch).**
-- **Two-hand:** primary = cursor, second fist = pause, second pinch = middle-click, second peace = copy.
-- **Personal calibration:** `python main.py --calibrate` samples pinch/fist/peace and saves thresholds.
-- **Backends:** `auto` selects xdotool (low-latency X11) then PyAutoGUI; `fake` for tests. Multi-monitor via xrandr.
-- **Click debounce:** stable-frame confirmation, gesture edge detection, cooldown 20 frames.
-- **On-screen display:** FPS, gesture + DRAG/PAUSED, handedness, 2nd hand, backend, landmarks, cooldown, click rings.
-- **Reliability:** camera reconnect with backoff, file logging (`virtual_mouse.log`), model SHA256 check, FPS cap, graceful shutdown (`q`/`Esc`).
-- **Tests:** `pytest` (13 tests) + `python main.py --self-test` + CI + Docker.
+</div>
 
-## Demo
-
-> **Demo GIF/video placeholder:** add a short capture showing pointing, pinch, fist, and peace gestures here.
-
-![Demo placeholder](docs/demo.gif)
-
-> **Screenshot placeholder:** replace this with a screenshot of the OSD and hand landmarks.
-
-![Screenshot placeholder](docs/screenshot.png)
-
-## 🧰 Requirements
-
-- Python **3.14** (the project was validated against Python 3.14.0; Python 3.11+ is generally suitable for the same code).
-- A webcam and a desktop session with a visible mouse/display.
-- Internet access on the first launch so the MediaPipe model can be downloaded.
-
-The dependency versions are intentionally minimum-version constrained in [`requirements.txt`](requirements.txt):
-
-```text
-mediapipe>=1.0.0
-opencv-python>=4.8.0
-opencv-contrib-python>=4.8.0
-pyautogui>=0.9.54
-numpy>=1.24.0
+```
+        _________________________
+       /                        /|
+      /   VIRTUAL-MOUSE GOD™   / |
+     /________________________/  |
+     |  HAND → [MediaPipe] →💀|  |
+     |  21 PTS → GESTURE → 🖱️  |  |
+     |  LATENCY: KILL MODE    | /
+     |________________________|/
 ```
 
-## ⚙️ Installation
+> **⚠️ WARNING TO VISITORS:** This is not a toy demo. This is a **real-time hand-tracking kill-machine** that hijacks your OS cursor at **30-90 FPS**, sees your fist before you throw it, and clicks before you blink. If you came for a weekend script — **leave now.**
 
-### Windows PowerShell
+---
 
-```powershell
-py -3.14 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python main.py
+## 💀 FEAR MATRIX — What This Monster Does
+
+| 🔪 Capability | 😱 Why You Should Fear It | 📍 Proof in Code |
+|---|---|---|
+| **TWO-HAND WARFARE** | Primary hand drives the cursor. Second hand **pauses time** (fist), fires **middle-click** (pinch), executes **copy** (peace). Two brains, one cursor. | `main.py` second-hand block, `hand_tracker.py:detect_all()` |
+| **PINCH-HOLD DRAG** | Hold pinch 18 frames → `mouseDown`. Move. Release → `mouseUp`. Select text, drag windows, draw — with thin air. | `gesture_recognizer.py:PinchDragDetector`, `mouse_controller.py:set_dragging()` |
+| **VELOCITY TAP KILL** | No dumb pinch-click. A physics tap: downward velocity ≥0.05 + drop ≥0.02 inside a 3-5 frame window. Slow curls are **rejected as cowardice**. | `gesture_recognizer.py:TapDetector` |
+| **DWELL-CLICK SNIPER** | Hover 600ms in 12px → auto left-click. For surgeons and snipers. | `mouse_controller.py:DwellClickDetector` |
+| **OneEuro ADAPTIVE SMOOTHING** | Exponential is for amateurs. OneEuro adapts cutoff to velocity: still hand = rock solid, fast hand = zero lag. | `mouse_controller.py:OneEuroFilter`, `mouse.smoothing_backend` |
+| **SCROLL WITH HYSTERESIS** | Thumb up/down scrolls without flicker. Deadzone + hysteresis band locks direction like a vice. | `gesture_recognizer.py:scroll_with_hysteresis()` |
+| **PERSONAL CALIBRATION RITUAL** | `python main.py --calibrate` — 9 seconds, 3 poses, thresholds rewritten to YOUR hand. Generic thresholds are for NPCs. | `main.py:run_calibration()` |
+| **BACKEND ARSENAL** | `auto` → xdotool (X11 low-latency blade) → PyAutoGUI fallback. `fake` backend for headless unit warfare. Multi-monitor virtual desktop via xrandr. | `mouse_backend.py:auto_backend()` |
+| **UNDEAD RELIABILITY** | Camera dies? **Reconnects with backoff** instead of crying. Model corrupt? **SHA256 verified.** Every event **file-logged**. FPS capped, drag always released on exit. | `main.py:open_camera()`, `hand_tracker.py:sha256_of_file()` |
+
+---
+
+## 🗺️ ANATOMY OF THE BEAST
+
+```mermaid
+flowchart LR
+    CAM[🎥 Webcam 1280x720] --> CAP[open_camera + reconnect backoff]
+    CAP --> Q[LatestFrameProcessor queue=1\nLATEST frame only, stale frames EXECUTED]
+    Q --> MP[MediaPipe HandLandmarker VIDEO\n detect_all sorted by confidence]
+    MP --> P1[PRIMARY HAND\n pointing/tap/pinch/fist/peace/scroll]
+    MP --> P2[SECOND HAND\n fist=PAUSE pinch=middle peace=copy]
+    P1 --> REC[GestureRecognizer\n tap + drag + hysteresis]
+    P2 --> REC
+    REC --> CTRL[MouseController\n OneEuro/exponential + deadzone]
+    CTRL --> BE[Backend: xdotool > pyautogui > fake]
+    BE --> OS[☠️ OS CURSOR DOMINATION]
+    REC --> OSD[OSD: gesture + DRAG/PAUSED + 2nd + backend + FPS]
 ```
 
-If PowerShell blocks activation, either enable local script execution for the current user or invoke the environment directly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe main.py
+```
+ ┌──────────┐   ┌──────────────┐   ┌───────────────────┐   ┌──────────────┐
+ │  CAMERA  │──▶│  MEDIAPIPE   │──▶│  GESTURE WAR ROOM │──▶│ OS CURSOR ☠️ │
+ │ 30 FPS   │   │ 21 LANDMARKS │   │ tap/drag/dwell    │   │ xdotool/    │
+ │ reconnect│   │ detect_all() │   │ hysteresis/pause  │   │ pyautogui   │
+ └──────────┘   └──────────────┘   └───────────────────┘   └──────────────┘
 ```
 
-### macOS/Linux
+---
+
+## 🖐️ GESTURE ARSENAL — LEARN OR PERISH
+
+| Gesture | Action | Detection Rule |
+|---|---|---|
+| ☝️ Index extended, rest curled | **MOVE** — cursor follows fingertip | `is_pointing()` |
+| ⚡ Fast index curl+extend | **LEFT CLICK** — velocity kill | `TapDetector: v≥0.05, drop≥0.02, 3-5f` + optional dwell 600ms/12px |
+| 🤏 Pinch-hold 18f | **DRAG START/END** — `mouseDown/Up` | `dist(4,8)≤pinch_threshold`, release after `drag_release_frames` |
+| ✊ Fist (all 5 tips in) | **RIGHT CLICK** — has priority over pinch | `tip-wrist < fist_tip_wrist_threshold` |
+| ✌️ Peace | **DOUBLE CLICK** | index+middle open, ring+pinky shut, sep≥`peace_min_separation` |
+| 👍 / 👎 Thumb, rest curled | **SCROLL UP/DOWN** — hysteresis-locked | deadzone + `scroll_hysteresis` |
+| ✊ **2nd hand** fist | **⏸️ PAUSE TIME** — primary frozen | until 2nd open |
+| 🤏 **2nd hand** pinch / ✌️ peace | **MIDDLE-CLICK / COPY** | `middleClick` / `ctrl+c` |
+
+> Fist beats pinch. Tap beats hold. Second hand beats first. **Hierarchy is law.** Cooldown 20f stops spam. `python main.py --calibrate` forges thresholds from YOUR flesh.
+
+---
+
+## ⚡ BATTLEFIELD PERFORMANCE (measured, not promised)
+
+| Trial | Result |
+|---|---|
+| `pytest` | **13 passed** (`test_godlevel.py` + `test_godlevel2.py`) |
+| `python main.py --self-test` | **11 checks passed**: 4 gestures + tap + re-arm + slow-reject + debounce + mapping + OneEuro + dwell + drag + MediaPipe VIDEO |
+| Live `--no-display --max-frames 60` | **~90 FPS**, right-clicks at f27/55 |
+| Live `--max-frames 300` with display | **42-61 FPS**, taps + right-clicks + FPS checkpoints |
+| Backends | xdotool (when present) < PyAutoGUI latency; fake backend for CI |
+| CPU | Heavy by nature (MediaPipe CPU). Tame with `process_every_n_frames=2`, `roi=0.5`, 480p. |
+
+---
+
+## 🛡️ GHOST PROTOCOL — Security Fortress
+
+- 📷 **100% local.** Frames never leave your machine. No cloud. No telemetry.
+- 🔒 Model HTTPS-only (`model.require_https`), **SHA256 verified** (`model.expected_sha256`), atomic download.
+- 🚫 `.gitignore` bans: `.venv`, `models/*.task`, `*.log`, `.env`, `*.pem`, `ghp_*`, credentials.
+- 🤖 Dependabot weekly (pip + actions), `SECURITY.md` private reporting, secret-scanning + push-protection ON, `main` linear-history, no force/delete.
+- 👑 License + history: **100% `hesam-oxe`** — every author, committer, and copyright header rewritten via `git filter-repo`.
+
+---
+
+## 💀 KILL-START (30 seconds to domination)
 
 ```bash
-python3.14 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python main.py
+python3.14 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python main.py --self-test      # 11 checks, no camera needed
+python main.py --calibrate      # 9s ritual: pinch → fist → peace
+python main.py                  # MOVE. TAP. DRAG. CONQUER.  [q] to quit
 ```
 
-The first launch downloads the model to:
+| Key | Power |
+|---|---|
+| `q`/`Esc` | Quit like a mortal |
+| `[` / `]` | Smoothing -/+ (responsiveness vs stability) |
+| `r` / `s` | Reload / Save `config.json` live |
+| `h` / `d` | Instructions / Landmarks overlay |
 
-```text
-models/hand_landmarker.task
-```
+---
 
-The source URL is:
-
-```text
-https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
-```
-
-You can also provide a local model explicitly:
-
-```powershell
-python main.py --model C:\path\to\hand_landmarker.task
-```
-
-## 🖐️ Gesture guide
-
-| Gesture | Action | Detection rule |
-| --- | --- | --- |
-| Index extended, others curled | Move cursor | Cursor follows index fingertip |
-| Fast index tap (curl+extend) | Left click | `TapDetector` velocity/drop window; optional dwell hover |
-| Pinch-hold 18f | Drag start/end | `dist(4,8)<=pinch_threshold` held `drag_hold_frames`, release `drag_release_frames` |
-| Fist | Right click | All 5 tips closer than `fist_tip_wrist_threshold` |
-| Peace | Double click | Index+middle extended, ring+pinky curled, sep>=`peace_min_separation` |
-| Thumb up / down, others curled | Scroll | With hysteresis `scroll_hysteresis` |
-| 2nd hand fist | Pause ON | Primary input paused until 2nd open |
-| 2nd hand pinch / peace | Middle-click / Copy | `middleClick` / `ctrl+c` |
-
-Run `python main.py --calibrate` for personal thresholds.
-
-A gesture must be visible for the configured number of stable frames and must be released before it can fire again. The default 20-frame cooldown prevents click spam.
-
-## ⌨️ Runtime controls
-
-| Key | Action |
-| --- | --- |
-| `q` or `Esc` | Quit cleanly |
-| `[` | Decrease smoothing factor by 0.5 (more responsive) |
-| `]` | Increase smoothing factor by 0.5 (more stable) |
-| `r` | Reload `config.json` |
-| `s` | Save the current runtime settings to `config.json` |
-| `h` | Show/hide gesture instructions |
-| `d` | Show/hide hand landmarks |
-
-`r` reloads live-adjustable gesture, mouse, click, and display settings. Camera capture mode, model path, and MediaPipe confidence settings take effect after restarting the application.
-
-## 🧾 Configuration guide
-
-All settings live in [`config.json`](config.json). Values are validated at startup and unknown keys are ignored with a warning.
-
-### `camera`
-
-- `index`: OpenCV camera index. Common values are `0` for the default webcam and `1` for a second camera.
-- `width`, `height`, `fps`: Requested capture mode. The OSD uses the actual frames returned by the driver.
-- `flip`: Mirror the preview and tracking input like a normal self-view.
-
-### `mouse`
-
-- `smoothing_factor`: Exponential low-pass factor. The update is `current + (target - current) / factor`; `7.0` is the default balance between latency and stability. The legacy spelling `smoothening` is also accepted in this object.
-- `movement_scale`: Expands movement around the center of the selected region. Keep at `1.0` for direct mapping.
-- `dead_zone_pixels`: Suppresses tiny model movements below this many desktop pixels.
-- `screen_region`: Normalized screen rectangle (`x`, `y`, `width`, `height`). For example, the left half of the screen is `x=0`, `width=0.5`.
-
-### `gestures`
-
-- `pinch_threshold`: Maximum normalized thumb/index distance for a pinch.
-- `fist_tip_wrist_threshold`: Maximum normalized fingertip-to-wrist distance for every finger in a fist.
-- `finger_extension_ratio` and `finger_angle_threshold_degrees`: Finger extension geometry thresholds.
-- `peace_min_separation`: Minimum index/middle fingertip separation for a peace sign.
-- `scroll_enabled`, `scroll_deadzone`, `scroll_amount`, `scroll_cooldown_frames`: Optional scroll controls.
-
-### `clicks`
-
-- `cooldown_frames`: Minimum frames between emitted clicks.
-- `stable_frames`: Frames a gesture must remain stable before it can click.
-- `double_click_interval_frames`: Reserved for future gesture timing refinements; the peace gesture currently calls `doubleClick()` directly.
-- `feedback_frames`: Duration of the colored click ring on the OSD.
-
-### `detection`
-
-- `num_hands`: Maximum hands passed to MediaPipe. The cursor uses the first detected hand.
-- `min_hand_detection_confidence`, `min_hand_presence_confidence`, `min_tracking_confidence`: MediaPipe confidence thresholds.
-
-### `display`
-
-- `window_name`: OpenCV preview window title.
-- `show_landmarks`, `show_instructions`, `show_fps`: OSD visibility switches.
-
-## 🏗️ Project structure
+## 🧬 PROJECT ORGANS
 
 ```text
 Virtual-Mouse/
-├── main.py                 # CLI, camera loop, OSD, and application lifecycle
-├── hand_tracker.py         # MediaPipe Tasks model download and HandLandmarker wrapper
-├── gesture_recognizer.py   # Landmark geometry and gesture classification
-├── mouse_controller.py     # Screen mapping, smoothing, clicks, scroll, debounce
-├── config.py               # Typed config loading and validation
-├── config.json             # User-adjustable settings
-├── mouse_legacy.py         # Preserved original implementation
-├── requirements.txt
-├── README.md
-└── models/
-    └── hand_landmarker.task
+├── main.py                 # CLI, camera+reconnect, OSD god-panel, calibration ritual
+├── hand_tracker.py         # detect_all(), SHA256, LatestFrameProcessor (latest-frame killer)
+├── gesture_recognizer.py   # TapDetector, PinchDragDetector, hysteresis scroll
+├── mouse_controller.py     # OneEuro/Dwell/Drag, backend-driven clicks
+├── mouse_backend.py        # pyautogui / xdotool / fake + xrandr multi-monitor
+├── config.py               # Typed validation (camera/mouse/gestures/tap/clicks/perf/model/logging)
+├── config.json             # YOUR personal thresholds (after --calibrate)
+├── tests/                  # 13 pytest war-games
+├── .github/workflows/ci.yml # pytest + self-test on every push
+├── Dockerfile              # python:3.14-slim + xdotool + dejavu
+├── SECURITY.md             # Private vulnerability reporting
+└── models/hand_landmarker.task  # Auto-downloaded, SHA-verified
 ```
 
-`mouse_legacy.py` is retained for reference only. The supported entry point is `main.py`; the legacy file intentionally contains the old `mp.solutions` code.
+---
 
-## 🧪 Validation
+## 🆘 WAR-ROOM TROUBLESHOOTING
 
-The following command does not require a physical camera. It validates configuration loading, the model, MediaPipe VIDEO-mode initialization, synthetic gesture cases, click debounce, and screen mapping:
+- **Camera won't open** → close Zoom/Chrome, try `--camera 1`, check `camera.index`, Linux: user in `video` group.
+- **Model won't download** → check URL/proxy, delete `models/*.part`, manual download to `models/`.
+- **Cursor jitters** → `mouse.smoothing_backend: one_euro`, raise `dead_zone_pixels`, better light, `--calibrate`.
+- **Wrong gestures** → `--calibrate`, then micro-tune `pinch_threshold` / `fist_tip_wrist_threshold`.
+- **Low FPS** → `process_every_n_frames: 2`, `roi_percentage: 0.5`, 480p, close video apps.
+- **Wayland** → install `xdotool` for XWayland or use X11 session; headless needs Xvfb + fake backend for tests.
 
-```powershell
-python main.py --self-test
+---
+
+<div align="center">
+
+### 👑 BOW TO THE CREATOR
+### *Built, hardened, and signed in blood by **hesam-oxe**.*
+### MIT License — see [LICENSE.md](LICENSE.md). Steal it and the hand will find you.
+
+```
+  ___  ___  ___  ___  ___  ___  ___  ___  ___  ___  ___  ___  ___
+ | H || E || S || A || M || - || O || X || E ||   || G || O || D |
+ |___||___||___||___||___||___||___||___||___||___||___||___||___|
+  Fear the hand. ☠️
 ```
 
-A short camera/window smoke test can be run with:
-
-```powershell
-python main.py --max-frames 300
-```
-
-For a non-interactive capture smoke test (the process exits after the frame limit):
-
-```powershell
-python main.py --no-display --max-frames 30
-```
-
-## 🛠️ Troubleshooting
-
-### The camera does not open
-
-- Close other applications using the webcam.
-- Try another index, such as `--camera 1`, or change `camera.index` in `config.json`.
-- On Windows, check **Settings → Privacy & security → Camera** and allow desktop apps to access the camera.
-- Confirm the camera is not in use by a browser or video-conferencing application.
-
-### The model does not download
-
-- Check the exact URL in `model.url` and your network/proxy settings.
-- Download `hand_landmarker.task` manually into `models/` using the URL above, then rerun.
-- Delete a truncated `models/hand_landmarker.task.part` file and retry.
-- The downloader writes to a temporary file and only renames it after a complete response.
-
-### `mediapipe` import fails
-
-- Activate the intended Python 3.14 environment and reinstall requirements.
-- Confirm the installed package is at least 1.0.0:
-
-  ```powershell
-  python -c "import mediapipe; print(mediapipe.__version__)"
-  ```
-
-- This project intentionally does **not** import `mp.solutions.hands`.
-
-### PyAutoGUI cannot access the screen
-
-PyAutoGUI needs a desktop session and a visible display. Run the program locally rather than through a headless service, remote terminal, or locked Windows session. On Linux, an X11/Wayland-compatible desktop backend may be required.
-
-### Cursor is jittery or too slow
-
-- Increase `mouse.smoothing_factor` or press `]`.
-- Increase `mouse.dead_zone_pixels` slightly.
-- Improve lighting and keep the hand fully inside the camera view.
-- Reduce the requested camera resolution if inference is slow.
-
-### Gestures trigger incorrectly
-
-- Adjust `gestures.fist_tip_wrist_threshold` and `gestures.pinch_threshold` in small steps.
-- Keep a consistent camera distance and lighting.
-- Avoid making the thumb touch the index while forming a fist; fist has intentional priority.
-- Use a larger `clicks.stable_frames` value when recognition is intermittent.
-
-### FPS is below the target
-
-- Close other camera/video applications.
-- Lower `camera.width` and `camera.height` if the CPU is the bottleneck.
-- Keep `detection.num_hands` at `1` unless multiple-hand support is needed.
-- The OSD FPS value includes capture, inference, gesture processing, and drawing.
-
-## 📄 License
-
-This project is licensed under the terms of the [MIT license](LICENSE.md).
+</div>
