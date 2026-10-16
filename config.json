@@ -1,0 +1,74 @@
+{
+  "camera": {
+    "index": 0,
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "flip": true
+  },
+  "mouse": {
+    "smoothing_factor": 5.0,
+    "movement_scale": 1.0,
+    "dead_zone_pixels": 1.5,
+    "screen_region": {
+      "x": 0.0,
+      "y": 0.0,
+      "width": 1.0,
+      "height": 1.0
+    }
+  },
+  "gestures": {
+    "pinch_threshold": 0.055,
+    "fist_tip_wrist_threshold": 0.52,
+    "finger_extension_ratio": 1.12,
+    "finger_angle_threshold_degrees": 150.0,
+    "peace_min_separation": 0.035,
+    "scroll_enabled": true,
+    "scroll_deadzone": 0.035,
+    "scroll_amount": 3,
+    "scroll_cooldown_frames": 4
+  },
+  "tap": {
+    "enabled": true,
+    "velocity_threshold": 0.05,
+    "min_frames_for_tap": 3,
+    "max_frames_for_tap": 5,
+    "history_size": 10,
+    "extended_stable_frames": 2,
+    "rearm_frames": 2,
+    "extended_y_margin": 0.01,
+    "min_tip_drop": 0.02,
+    "conflict_lock_frames": 5,
+    "calibration_step": 0.005
+  },
+  "clicks": {
+    "cooldown_frames": 20,
+    "stable_frames": 2,
+    "double_click_interval_frames": 8,
+    "feedback_frames": 8
+  },
+  "detection": {
+    "num_hands": 1,
+    "min_hand_detection_confidence": 0.55,
+    "min_hand_presence_confidence": 0.55,
+    "min_tracking_confidence": 0.55
+  },
+  "performance": {
+    "process_every_n_frames": 1,
+    "roi_percentage": 0.7,
+    "use_async_processing": true,
+    "use_gpu": false,
+    "async_queue_size": 1
+  },
+  "display": {
+    "window_name": "Virtual Mouse",
+    "show_landmarks": true,
+    "show_instructions": true,
+    "show_fps": true
+  },
+  "model": {
+    "path": "models/hand_landmarker.task",
+    "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+    "download_timeout_seconds": 60.0
+  }
+}

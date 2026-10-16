@@ -1,0 +1,10 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Auto-downloaded Hand Landmarker model (re-downloaded on first run)
+models/*.task
+models/*.part
+*.log
