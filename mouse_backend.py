@@ -134,6 +134,11 @@ class PyAutoGUIBackend(MouseBackend):
 
     def __init__(self) -> None:
         """Import PyAutoGUI lazily and disable its pause."""
+        if not os.environ.get("DISPLAY"):
+            raise RuntimeError(
+                "PyAutoGUIBackend needs an X11 DISPLAY (none is set); "
+                "use backend='fake' or run under X11/x-wayland."
+            )
         import pyautogui
 
         pyautogui.PAUSE = 0
@@ -307,8 +312,13 @@ def auto_backend(preferred: str = "auto") -> MouseBackend:
         return XDotoolBackend()
     if preferred == "pyautogui":
         return PyAutoGUIBackend()
+    # auto: guard against headless environments (CI, servers without X11) so
+    # auto-selection degrades gracefully to the in-memory fake backend.
+    if not os.environ.get("DISPLAY"):
+        LOGGER.warning("No X11 DISPLAY detected; using fake backend (headless)")
+        return FakeBackend()
     # auto: xdotool first on X11 (lower latency), fallback to pyautogui
-    if os.environ.get("DISPLAY") and shutil.which("xdotool"):
+    if shutil.which("xdotool"):
         try:
             backend = XDotoolBackend()
             backend.size()

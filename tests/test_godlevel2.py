@@ -50,6 +50,21 @@ def test_auto_backend_fake():
     assert auto_backend("fake").name == "fake"
 
 
+def test_auto_backend_headless(monkeypatch):
+    """Headless (no DISPLAY) auto-selection falls back to fake backend."""
+    monkeypatch.delenv("DISPLAY", raising=False)
+    assert auto_backend("auto").name == "fake"
+
+
+def test_backend_pyautoogui_without_display_raises(monkeypatch):
+    """Explicit pyautogui backend on headless env raises a clear error."""
+    from mouse_backend import PyAutoGUIBackend
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    with pytest.raises(RuntimeError, match="DISPLAY"):
+        PyAutoGUIBackend()
+
+
 def test_monitors_sane():
     monitors = list_monitors()
     assert len(monitors) >= 1
